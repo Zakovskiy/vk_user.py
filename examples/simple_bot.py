@@ -13,4 +13,4 @@ while 1:
 		args = content.split(" ");
 
 		if args[0] == "привет":
-			vk.send_message("ку!", peer_id)["response"];
+			vk.send_message("ку!", peer_id)

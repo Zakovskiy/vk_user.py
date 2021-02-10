@@ -10,7 +10,7 @@ git clone https://github.com/Zakovskiy/vk_user.py
 ```python
 import vkuser
 
-Amino = vkuser.Client("access_token");
+vk = vkuser.Client("access_token");
 ```
 
 ### [Telegram](https://t.me/zakovskiy)

@@ -12,7 +12,7 @@ class Client():
 
 
 	'''
-    	-> параметр "token" -- VK User Token - можно получить здесь - https://oauth.vk.com/authorize?client_id=6121396&scope=501198815&redirect_uri=https://oauth.vk.com/blank.html&display=page&response_type=token&revoke=1
+    	-> параметр "access_token" -- VK User Token - можно получить здесь - https://oauth.vk.com/authorize?client_id=6121396&scope=501198815&redirect_uri=https://oauth.vk.com/blank.html&display=page&response_type=token&revoke=1
     '''
 	def __init__(self, access_token:str=None, version_api:str="5.126"):
 		if access_token == None:

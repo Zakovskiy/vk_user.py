@@ -1,7 +1,7 @@
 import requests
 import json
 import random
-
+import base64
 class Client():
 
 	"""
@@ -12,19 +12,27 @@ class Client():
 
 
 	'''
-    	-> параметр "access_token" -- VK User Token - можно получить здесь - https://oauth.vk.com/authorize?client_id=6121396&scope=501198815&redirect_uri=https://oauth.vk.com/blank.html&display=page&response_type=token&revoke=1
-    '''
-	def __init__(self, access_token:str=None, version_api:str="5.126"):
+		-> параметр "access_token" -- VK User Token - можно получить здесь - https://oauth.vk.com/authorize?client_id=6121396&scope=501198815&redirect_uri=https://oauth.vk.com/blank.html&display=page&response_type=token&revoke=1
+		-> параметр "type"		   -- False - токен группы, True - токен юзера.
+	'''
+	def __init__(self, access_token:str=None, version_api:str="5.126", type=True, group_id:int = None):
 		if access_token == None:
 			exit("Empty param = `access_token`");
 		else:
 			self.access_token = access_token;
 			self.v			  = version_api;
+			self.type		  = type;
+			if not type and not group_id:
+				exit("Empty param = `group_id`");
+			self.group_id = group_id;
 			self.get_longpoll_server();
 
 
 	def get_longpoll_server(self):
-		res = requests.get(f"https://api.vk.com/method/messages.getLongPollServer?access_token={self.access_token}&v={self.v}&need_pts=1&lp_version=3").json()["response"];
+		if self.type:
+			res = requests.get(f"https://api.vk.com/method/messages.getLongPollServer?access_token={self.access_token}&v={self.v}&need_pts=1&lp_version=3").json()["response"];
+		else:
+			res = requests.get(f"https://api.vk.com/method/groups.getLongPollServer?access_token={self.access_token}&v={self.v}&group_id={self.group_id}").json()["response"];
 		self.server = res["server"];
 		self.key    = res["key"];
 		self.ts     = res["ts"];
@@ -96,20 +104,31 @@ class Client():
 
 	# return new message {
 	def listen(self):
-		res = requests.get(f"https://{self.server}?act=a_check&key={self.key}&ts={self.ts}&wait=25&mode=2&version=3").json();
-		self.ts = res["ts"];
-		if len(res["updates"]) == 0:
-			return {"type":"empty"}
-		else:
-			if res["updates"][0][0] == 4:
-				data = {
-					"type":"message_new",
-					"peer_id":res["updates"][0][3],
-					"content":res["updates"][0][5],
-					"from_id": res["updates"][0][6]["from"] if "from" in res["updates"][0][6] else None
-				}
+		if self.type:
+			res = requests.get(f"https://{self.server}?act=a_check&key={self.key}&ts={self.ts}&wait=25&mode=2&version=3").json();
+			self.ts = res["ts"];
+			if len(res["updates"]) == 0:
+				return {"type":"empty"}
 			else:
-				data = {"type":"unknown", "c":res["updates"]};
+				if res["updates"][0][0] == 4:
+					data = {
+						"type":"message_new",
+						"peer_id":res["updates"][0][3],
+						"content":res["updates"][0][5],
+						"from_id": res["updates"][0][6]["from"] if "from" in res["updates"][0][6] else None
+					}
+				else:
+					data = {"type":"unknown", "c":res["updates"]};
+		else:
+			res = requests.get(f"{self.server}?act=a_check&key={self.key}&ts={self.ts}&wait=25").json();
+			try:
+				self.ts = res["ts"];
+			except:
+				print(res);
+			if len(res["updates"]) == 0:
+				return {"type":"empty"}
+			else:
+				data = res["updates"][0];
 		return data;
 	# }
 
@@ -181,11 +200,34 @@ class Client():
 
 	# }
 
+	# photos methods {
+
+	def get_upload_server_photo(self, peer_id:int=0):
+		res = self.req("photos.getMessagesUploadServer", {"peer_id":peer_id})["response"];
+		return res;
+
+	def upload_photo(self, image, upload_url):
+		with FilesOpener(image) as img: 
+			res = requests.post(upload_url, files=img).json();
+		return res;
+
+	def save_messages_photo(self, photo, server, hash):
+		return self.req("photos.saveMessagesPhoto", {"photo":photo, "server":server, "hash":hash})["response"][0];
+
+	# }
+
 	# messages methods {
 
 	def get_dialogs(self, offset:int=0, count:int=10):
 		res = self.req("messages.getConversations", {"offset":offset, "count":count});
 		return res;
+
+	def send_image(self, content:str=None, img:str="", peer_id:int=0):
+		gusp = self.get_upload_server_photo(peer_id=peer_id);
+		up   = self.upload_photo(image=img, upload_url=gusp["upload_url"]);
+		smp  = self.save_messages_photo(up["photo"], up["server"], up["hash"]);
+
+		return self.send_message(content=content,peer_id=peer_id, attachment=f"photo{smp['owner_id']}_{smp['id']}")
 
 	def create_chat(self, title:str="фан беседа зака", user_ids:str="1, 2, 3"):
 		res = self.req("messages.createChat", {"user_ids":user_ids, "title":title});
@@ -220,7 +262,8 @@ class Client():
 		return res;
 
 	def get_chat_members(self, peer_id:int=2000000000):
-		res = self.req("messages.getConversationMembers", {"peer_id":peer_id})
+		res = self.req("messages.getConversationMembers", {"peer_id":peer_id});
+		return res;
 
 	def edit_chat(self, title:str="фан беседа зака", chat_id:int=0):
 		res = self.req("messages.editChat", {"chat_id":chat_id, "title":title});
@@ -254,10 +297,11 @@ class Client():
 		res = self.req("messages.removeChatUser", {"chat_id":chat_id, "user_id":user_id});
 		return res;
 
-	def send_message(self, content:str = "я фан зака..", peer_id:int = 2000000000):
+	def send_message(self, content:str = "я фан зака..", peer_id:int = 2000000000, **kwargs):
 		data = {
 			"random_id":random.randint(100000000, 900000000),
-			"message":content
+			"message":content,
+			**kwargs
 		}
 		if peer_id < 2000000000:
 			data["user_id"] = peer_id;
@@ -284,3 +328,49 @@ class Client():
 		params["v"]			   = self.v;
 		res 				   = requests.post(f"https://api.vk.com/method/{req}/", data=params).json();
 		return res;
+
+class FilesOpener(object):
+	def __init__(self, paths, key_format='file{}'):
+		if not isinstance(paths, list):
+			paths = [paths]
+
+		self.paths = paths
+		self.key_format = key_format
+		self.opened_files = []
+
+	def __enter__(self):
+		return self.open_files()
+
+	def __exit__(self, type, value, traceback):
+		self.close_files()
+
+	def open_files(self):
+		self.close_files()
+
+		files = []
+
+		for x, file in enumerate(self.paths):
+			if hasattr(file, 'read'):
+				f = file
+
+				if hasattr(file, 'name'):
+					filename = file.name
+				else:
+					filename = '.jpg'
+			else:
+				filename = file
+				f = open(filename, 'rb')
+				self.opened_files.append(f)
+
+			ext = filename.split('.')[-1]
+			files.append(
+				(self.key_format.format(x), ('file{}.{}'.format(x, ext), f))
+			)
+
+		return files
+
+	def close_files(self):
+		for f in self.opened_files:
+			f.close()
+
+		self.opened_files = []
